@@ -80,24 +80,29 @@ def edges2regex(edges):
             result = "(" + "|".join(labels) + ")"
     return result
 
+def groupby(edges, key):
+    values = set(map(lambda x:x[key], edges))
+    groups = [[y for y in edges if y[key]==x] for x in values]
+    return groups
 
 def substitute_node(g, nodeid):
     graph = g.copy()
-    print("# edges = ", len(graph.edges.data()))
+    
     loops = [e for e in graph.edges.data() if e[0] == e[1] == nodeid]
     edge_in = [e for e in graph.edges.data() if e[1] == nodeid and e[0] != e[1]]
     edge_out = [e for e in graph.edges.data() if e[0] == nodeid and e[0] != e[1]]
-    # print(f"loops: {loops}\nin: {edge_in}\nout: {edge_out}")
+    
     graph.remove_node(nodeid)
-
-    rins = edges2regex(edge_in)
+    
     rloops = edges2regex(loops)
-    routs = edges2regex(edge_out)
 
-    for ein in edge_in:
-        for eout in edge_out:
-            edge, data = create_edge_regex(ein,eout, compose_default_regex(rins,rloops,routs))
-            graph.add_edge(*edge, **data)
+    for ein in groupby(edge_in,0):
+        for eout in groupby(edge_out,1):
+            id_in = ein[0][0]
+            id_out = eout[0][1]
+            rins = edges2regex(ein)
+            routs = edges2regex(eout)
+            graph.add_edge(id_in, id_out,**{"label" : compose_default_regex(rins,rloops,routs)})
     return graph
 
 def main():
@@ -111,20 +116,14 @@ def main():
             dst = (n * args.base + e) % args.div
             graph.add_edge(n,dst,label=str(e))
 
-    # print(graph.edges.data())
-    # draw_labeled_multigraph(graph, "label")
-    # graph = substitute_node(graph, 3)
-    # draw_labeled_multigraph(graph, "label")
-    # graph = substitute_node(graph, 4)
-    # draw_labeled_multigraph(graph, "label")
     for n in reversed(range(1,args.div)):
+        # draw_labeled_multigraph(graph, "label")
         graph = substitute_node(graph, n)
 
     inner_regex = edges2regex(graph.edges.data())
 
-    print("Regex length = ", len(f"({inner_regex})*"))
     print("inner = ", inner_regex)
-    # print("Regex = ", f"({inner_regex})*")
+    print("Regex length = ", len(f"({inner_regex})*"))
 
 if __name__ == "__main__":
     main()
