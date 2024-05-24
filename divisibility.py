@@ -46,7 +46,16 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
     plt.show()
 
 def compose_default_regex(begin, inner, end):
-    return f"({begin}{inner}*{end})"
+    result = ""
+    if begin == inner:
+        result = f"{begin}+{end}"
+    elif inner == end:
+        result = f"{begin}{end}+"
+    # elif begin == end == "":
+    #     result = inner + "*"
+    else:
+        result = f"({begin}{inner}*{end})"
+    return result
 
 
 def create_edge_regex(ein, eout, label):
@@ -63,7 +72,7 @@ def edges2regex(edges):
     if len(edges):
         is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
         labels = sorted(list(set(retrive_labels(edges))),key=lambda x: (len(x),x))
-        if is_digits and len(labels) == 1:
+        if len(labels) == 1:
             result = labels[0]
         elif is_digits:
             result = "[" + "".join(labels) + "]"
@@ -114,7 +123,8 @@ def main():
     inner_regex = edges2regex(graph.edges.data())
 
     print("Regex length = ", len(f"({inner_regex})*"))
-    print("Regex = ", f"({inner_regex})*")
+    print("inner = ", inner_regex)
+    # print("Regex = ", f"({inner_regex})*")
 
 if __name__ == "__main__":
     main()
