@@ -55,6 +55,26 @@ def create_edge_regex(ein, vloop, eout):
     label = f"({vin}{vloop}*{vout})"
     return (ein[0], eout[1]), {"label" : label}
 
+def retrive_label(edge):
+    return edge[2]["label"]
+
+def retrive_labels(edges):
+    return [retrive_label(e) for e in edges]
+
+def edges2regex(edges):
+    result = ""
+    if len(edges):
+        is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
+        labels = retrive_labels(edges)
+        if is_digits and len(labels) == 1:
+            result = labels[0]
+        elif is_digits:
+            result = "[" + "".join(labels) + "]"
+        else:
+            result = "(" + "|".join(labels) + ")"
+    return result
+
+
 def substitute_node(g, nodeid):
     graph = g.copy()
     print("# edges = ", len(graph.edges.data()))
@@ -63,23 +83,12 @@ def substitute_node(g, nodeid):
     edge_out = [e for e in graph.edges.data() if e[0] == nodeid and e[0] != e[1]]
     # print(f"loops: {loops}\nin: {edge_in}\nout: {edge_out}")
     graph.remove_node(nodeid)
-    if len(loops):
-        is_digits = np.all([True if len(l[2]["label"]) == 1 else False for l in loops ])
-        if is_digits and len(loops) == 1:
-            loop = loops[0][2]["label"]
-        elif is_digits:
-            loop = "".join([e[2]["label"] for e in loops])
-            loop = f"[{loop}]"
-        else:
-            loop = "|".join([e[2]["label"] for e in loops])
-            loop = f"({loop})"
-    else:
-        loop = ""
-    if len(loops) == 0:
-        loops.append(None)
+
+    rgx = edges2regex(loops)
+
     for ein in edge_in:
         for eout in edge_out:
-            edge, data = create_edge_regex(ein,loop,eout)
+            edge, data = create_edge_regex(ein,rgx,eout)
             graph.add_edge(*edge, **data)
     return graph
 
@@ -95,7 +104,7 @@ def main():
             graph.add_edge(n,dst,label=str(e))
 
     # print(graph.edges.data())
-    draw_labeled_multigraph(graph, "label")
+    # draw_labeled_multigraph(graph, "label")
     # graph = substitute_node(graph, 3)
     # draw_labeled_multigraph(graph, "label")
     # graph = substitute_node(graph, 4)
