@@ -63,8 +63,18 @@ def substitute_node(g, nodeid):
     edge_out = [e for e in graph.edges.data() if e[0] == nodeid and e[0] != e[1]]
     # print(f"loops: {loops}\nin: {edge_in}\nout: {edge_out}")
     graph.remove_node(nodeid)
-    loop = "|".join([e[2]["label"] for e in loops])
-    loop = f"({loop})"
+    if len(loops):
+        is_digits = np.all([True if len(l[2]["label"]) == 1 else False for l in loops ])
+        if is_digits and len(loops) == 1:
+            loop = loops[0][2]["label"]
+        elif is_digits:
+            loop = "".join([e[2]["label"] for e in loops])
+            loop = f"[{loop}]"
+        else:
+            loop = "|".join([e[2]["label"] for e in loops])
+            loop = f"({loop})"
+    else:
+        loop = ""
     if len(loops) == 0:
         loops.append(None)
     for ein in edge_in:
@@ -72,7 +82,6 @@ def substitute_node(g, nodeid):
             edge, data = create_edge_regex(ein,loop,eout)
             graph.add_edge(*edge, **data)
     return graph
-
 
 def main():
     args = parse_args()
