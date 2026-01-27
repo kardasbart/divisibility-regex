@@ -45,14 +45,11 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
 
     plt.show()
 
-def create_edge_regex(ein, vloop, eout):
-    vin = ein[2]["label"]
-    vout = eout[2]["label"]
-    # if loop == None:
-    #     label = f"({vin}{vout})"
-    # else:
-    #     vloop = loop[2]["label"]
-    label = f"({vin}{vloop}*{vout})"
+def compose_default_regex(begin, inner, end):
+    return f"({begin}{inner}*{end})"
+
+
+def create_edge_regex(ein, eout, label):
     return (ein[0], eout[1]), {"label" : label}
 
 def retrive_label(edge):
@@ -65,7 +62,7 @@ def edges2regex(edges):
     result = ""
     if len(edges):
         is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
-        labels = retrive_labels(edges)
+        labels = sorted(list(set(retrive_labels(edges))),key=lambda x: (len(x),x))
         if is_digits and len(labels) == 1:
             result = labels[0]
         elif is_digits:
@@ -84,11 +81,13 @@ def substitute_node(g, nodeid):
     # print(f"loops: {loops}\nin: {edge_in}\nout: {edge_out}")
     graph.remove_node(nodeid)
 
-    rgx = edges2regex(loops)
+    rins = edges2regex(edge_in)
+    rloops = edges2regex(loops)
+    routs = edges2regex(edge_out)
 
     for ein in edge_in:
         for eout in edge_out:
-            edge, data = create_edge_regex(ein,rgx,eout)
+            edge, data = create_edge_regex(ein,eout, compose_default_regex(rins,rloops,routs))
             graph.add_edge(*edge, **data)
     return graph
 
@@ -111,8 +110,9 @@ def main():
     # draw_labeled_multigraph(graph, "label")
     for n in reversed(range(1,args.div)):
         graph = substitute_node(graph, n)
-    remain_regexes = [e[2]["label"] for e in graph.edges.data()]
-    inner_regex = "|".join(remain_regexes)
+
+    inner_regex = edges2regex(graph.edges.data())
+
     print("Regex length = ", len(f"({inner_regex})*"))
     print("Regex = ", f"({inner_regex})*")
 
