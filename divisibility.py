@@ -10,6 +10,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Process some integers.')
     parser.add_argument('base', type=int, help='numeric system base')
     parser.add_argument('div', type=int, help='generate regex for divisibility by \'div\'')
+    parser.add_argument('--draw', action='store_true', help='draw graph at each step')
     args = parser.parse_args()
     return args
 
@@ -147,7 +148,8 @@ def main():
     nodes_to_eliminate = list(range(1,args.div))
     while nodes_to_eliminate:
         best_node = min(nodes_to_eliminate, key=lambda n: get_node_weight(graph, n))
-        draw_labeled_multigraph(graph, "label")
+        if args.draw:
+            draw_labeled_multigraph(graph, "label")
         graph = substitute_node(graph, best_node)
         nodes_to_eliminate.remove(best_node)
 
@@ -164,7 +166,6 @@ def main():
             m2 = (num % args.div) == 0
             if m != m2:
                 fails+=1
-                print(f"Something went wrong for num {num}: regex return = {m}, while % return {m2}")
         print(f"Performed 10k tests, failed: {fails}")
 
 
