@@ -45,14 +45,14 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
 
     plt.show()
 
-def create_edge_regex(ein, loop, eout):
+def create_edge_regex(ein, vloop, eout):
     vin = ein[2]["label"]
     vout = eout[2]["label"]
-    if loop == None:
-        label = f"({vin}{vout})"
-    else:
-        vloop = loop[2]["label"]
-        label = f"({vin}{vloop}*{vout})"
+    # if loop == None:
+    #     label = f"({vin}{vout})"
+    # else:
+    #     vloop = loop[2]["label"]
+    label = f"({vin}{vloop}*{vout})"
     return (ein[0], eout[1]), {"label" : label}
 
 def substitute_node(g, nodeid):
@@ -63,13 +63,14 @@ def substitute_node(g, nodeid):
     edge_out = [e for e in graph.edges.data() if e[0] == nodeid and e[0] != e[1]]
     # print(f"loops: {loops}\nin: {edge_in}\nout: {edge_out}")
     graph.remove_node(nodeid)
+    loop = "|".join([e[2]["label"] for e in loops])
+    loop = f"({loop})"
     if len(loops) == 0:
         loops.append(None)
     for ein in edge_in:
         for eout in edge_out:
-            for loop in loops:
-                edge, data = create_edge_regex(ein,loop,eout)
-                graph.add_edge(*edge, **data)
+            edge, data = create_edge_regex(ein,loop,eout)
+            graph.add_edge(*edge, **data)
     return graph
 
 
@@ -94,8 +95,8 @@ def main():
         graph = substitute_node(graph, n)
     remain_regexes = [e[2]["label"] for e in graph.edges.data()]
     inner_regex = "|".join(remain_regexes)
-    print("Regex = ", f"({inner_regex})*")
     print("Regex length = ", len(f"({inner_regex})*"))
+    print("Regex = ", f"({inner_regex})*")
 
 if __name__ == "__main__":
     main()
