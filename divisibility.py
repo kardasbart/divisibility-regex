@@ -3,6 +3,7 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import itertools as it
+import re
 
 
 def parse_args():
@@ -67,15 +68,40 @@ def retrive_label(edge):
 def retrive_labels(edges):
     return [retrive_label(e) for e in edges]
 
+def merge_labels(labels):
+    if len(labels) >= 2:
+        patern = labels[0]
+        target = labels[1]
+        if patern in target:
+            rx = re.compile(r"(\[.*\])\+(\[.*\])")
+            match = rx.match(target)
+            if match is not None:
+                labels = [f"{match.group(1)}*{match.group(2)}"] + (labels[2:] if len(labels) > 2 else [])
+                # print(match.group(1), match.group(2), patern)
+    return labels
+
+
 def edges2regex(edges):
     result = ""
     if len(edges):
-        is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
-        labels = sorted(list(set(retrive_labels(edges))),key=lambda x: (len(x),x))
+        digits_edges = [e for e in edges if len(retrive_label(e)) == 1]
+        other_edges = [e for e in edges if len(retrive_label(e)) != 1]
+        labels = retrive_labels(other_edges)
+        
+        if len(digits_edges) > 1:
+            digits_labels = "[" + "".join(retrive_labels(digits_edges)) + "]"
+            labels.append(digits_labels)
+        elif len(digits_edges) == 1:
+            labels.append(retrive_label(digits_edges[0]))
+        labels = sorted(list(set(labels)),key=lambda x: (len(x),x))
+        # is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
+        # labels = sorted(list(set(retrive_labels(edges))),key=lambda x: (len(x),x))
+        labels = merge_labels(labels)
+        labels = merge_labels(labels)
+        labels = merge_labels(labels)
+        labels = merge_labels(labels)
         if len(labels) == 1:
             result = labels[0]
-        elif is_digits:
-            result = "[" + "".join(labels) + "]"
         else:
             result = "(" + "|".join(labels) + ")"
     return result
