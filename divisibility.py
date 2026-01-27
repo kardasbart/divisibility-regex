@@ -50,16 +50,8 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
     plt.show()
     
 def compose_default_regex(begin, inner, end):
-    result = ""
-    if begin == inner:
-        result = f"{begin}+{end}"
-    elif inner == end:
-        result = f"{begin}{end}+"
-    # elif begin == end == "":
-    #     result = inner + "*"
-    else:
-        result = f"({begin}{inner}*{end})"
-    return result
+    middle = f"({inner})*" if inner else ""
+    return f"{begin}{middle}{end}"
 
 
 def create_edge_regex(ein, eout, label):
@@ -80,7 +72,6 @@ def merge_labels(labels):
             match = rx.match(target)
             if match is not None:
                 labels = [f"{match.group(1)}*{match.group(2)}"] + (labels[2:] if len(labels) > 2 else [])
-                # print(match.group(1), match.group(2), patern)
     return labels
 
 
@@ -97,12 +88,6 @@ def edges2regex(edges):
         elif len(digits_edges) == 1:
             labels.append(retrive_label(digits_edges[0]))
         labels = sorted(list(set(labels)),key=lambda x: (len(x),x))
-        # is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
-        # labels = sorted(list(set(retrive_labels(edges))),key=lambda x: (len(x),x))
-        # labels = merge_labels(labels)
-        # labels = merge_labels(labels)
-        # labels = merge_labels(labels)
-        # labels = merge_labels(labels)
         if len(labels) == 1:
             result = labels[0]
         else:
@@ -136,10 +121,17 @@ def substitute_node(g, nodeid):
 
 def check_div(base, recompiled, num):
     snum = np.base_repr(num, base = base)
-    # print("REPR: ", snum)
     m = recompiled.match(snum)
-    # print("M:", m)
     return m is not None
+
+def get_node_weight(graph, nodeid):
+    """Calculates the weight of a node based on connectivity change."""
+    in_neighbors = {e[0] for e in graph.in_edges(nodeid) if e[0] != nodeid}
+    out_neighbors = {e[1] for e in graph.out_edges(nodeid) if e[1] != nodeid}
+    
+    num_in = len(in_neighbors)
+    num_out = len(out_neighbors)
+    return (num_in * num_out) - (num_in + num_out)
 
 def main():
     args = parse_args()
@@ -152,9 +144,12 @@ def main():
             dst = (n * args.base + e) % args.div
             graph.add_edge(n,dst,label=str(e))
 
-    for n in reversed(range(1,args.div)):
+    nodes_to_eliminate = list(range(1,args.div))
+    while nodes_to_eliminate:
+        best_node = min(nodes_to_eliminate, key=lambda n: get_node_weight(graph, n))
         draw_labeled_multigraph(graph, "label")
-        graph = substitute_node(graph, n)
+        graph = substitute_node(graph, best_node)
+        nodes_to_eliminate.remove(best_node)
 
     inner_regex = edges2regex(graph.edges.data())
 
