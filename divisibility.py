@@ -13,39 +13,42 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+
 def draw_labeled_multigraph(G, attr_name, ax=None):
-    """
-    Length of connectionstyle must be at least that of a maximum number of edges
-    between pair of nodes. This number is maximum one-sided connections
-    for directed graph and maximum total connections for undirected graph.
-    """
-    # Works with arc3 and angle3 connectionstyles
+    if ax is None:
+        plt.figure(figsize=(8, 6))
+        ax = plt.gca()
+    
     connectionstyle = [f"arc3,rad={r}" for r in it.accumulate([0.15] * 4)]
-    # connectionstyle = [f"angle3,angleA={r}" for r in it.accumulate([30] * 4)]
 
     pos = nx.shell_layout(G)
-    nx.draw_networkx_nodes(G, pos, ax=ax)
+    
+    nx.draw_networkx_nodes(G, pos, ax=ax, node_color='lightblue', node_size=500)
     nx.draw_networkx_labels(G, pos, font_size=10, ax=ax)
+    
     nx.draw_networkx_edges(
-        G, pos, connectionstyle=connectionstyle, ax=ax
+        G, pos, connectionstyle=connectionstyle, ax=ax, arrowsize=20
     )
 
-    labels = {
-        tuple(edge): f"{attrs[attr_name]}"
-        for *edge, attrs in G.edges(keys=True, data=True)
+    edge_labels = {
+        (u, v, k): d[attr_name]
+        for u, v, k, d in G.edges(keys=True, data=True)
     }
+    
     nx.draw_networkx_edge_labels(
         G,
         pos,
-        labels,
+        edge_labels,
         connectionstyle=connectionstyle,
-        font_color="black",
-        bbox={"alpha": 1, "color":"white"},
+        font_color="red",
+        bbox={"alpha": 0.7, "color": "white", "boxstyle": "round,pad=0.2"},
         ax=ax,
     )
 
+    ax.set_title(f"Graph State: {len(G.nodes)} nodes remaining")
+    
     plt.show()
-
+    
 def compose_default_regex(begin, inner, end):
     result = ""
     if begin == inner:
@@ -150,7 +153,7 @@ def main():
             graph.add_edge(n,dst,label=str(e))
 
     for n in reversed(range(1,args.div)):
-        # draw_labeled_multigraph(graph, "label")
+        draw_labeled_multigraph(graph, "label")
         graph = substitute_node(graph, n)
 
     inner_regex = edges2regex(graph.edges.data())
