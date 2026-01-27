@@ -96,10 +96,10 @@ def edges2regex(edges):
         labels = sorted(list(set(labels)),key=lambda x: (len(x),x))
         # is_digits = np.all([True if len(retrive_label(l)) == 1 else False for l in edges ])
         # labels = sorted(list(set(retrive_labels(edges))),key=lambda x: (len(x),x))
-        labels = merge_labels(labels)
-        labels = merge_labels(labels)
-        labels = merge_labels(labels)
-        labels = merge_labels(labels)
+        # labels = merge_labels(labels)
+        # labels = merge_labels(labels)
+        # labels = merge_labels(labels)
+        # labels = merge_labels(labels)
         if len(labels) == 1:
             result = labels[0]
         else:
@@ -131,6 +131,13 @@ def substitute_node(g, nodeid):
             graph.add_edge(id_in, id_out,**{"label" : compose_default_regex(rins,rloops,routs)})
     return graph
 
+def check_div(base, recompiled, num):
+    snum = np.base_repr(num, base = base)
+    # print("REPR: ", snum)
+    m = recompiled.match(snum)
+    # print("M:", m)
+    return m is not None
+
 def main():
     args = parse_args()
     graph = nx.MultiDiGraph()
@@ -149,7 +156,20 @@ def main():
     inner_regex = edges2regex(graph.edges.data())
 
     print("inner = ", inner_regex)
-    print("Regex length = ", len(f"({inner_regex})*"))
+    rlen = len(f"({inner_regex})*")
+    print("Regex length = ", rlen)
+    if rlen < 5000:
+        rgx = re.compile(f"^({inner_regex})*$")
+        fails = 0
+        for num in range(0, 10000):
+            m = check_div(args.base, rgx, num)
+            m2 = (num % args.div) == 0
+            if m != m2:
+                fails+=1
+                print(f"Something went wrong for num {num}: regex return = {m}, while % return {m2}")
+        print(f"Performed 10k tests, failed: {fails}")
+
+
 
 if __name__ == "__main__":
     main()
