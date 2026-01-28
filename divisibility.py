@@ -154,12 +154,16 @@ def main():
         nodes_to_eliminate.remove(best_node)
 
     inner_regex = edges2regex(graph.edges.data())
-
-    print("inner = ", inner_regex)
-    rlen = len(f"({inner_regex})*")
-    print("Regex length = ", rlen)
+    result_regex = "^" + compose_default_regex ("", inner_regex, "") + "$"
+    result_length = len(result_regex)
+    print(f"Final regex (length {result_length}):")
+    if result_length > 1000:
+        print("Regex too long to display completely.")
+    else:
+        print(result_regex)
+    rlen = len(result_regex)
     if rlen < 5000:
-        rgx = re.compile(f"^({inner_regex})*$")
+        rgx = re.compile(f"^{result_regex}$")
         fails = 0
         for num in range(0, 10000):
             m = check_div(args.base, rgx, num)
