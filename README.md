@@ -39,20 +39,22 @@ python main.py <base> <divisor> [--draw]
 * `div`: The number you want to check divisibility for.
 * `--draw`: (Optional) Use this flag to open a window visualizing the graph reduction process at every step.
 
-### Example: Binary Divisibility by 3
+### Example: Binary Divisibility by 4
 
-To find the regex for binary numbers (Base 2) divisible by 3:
+To find the regex for binary numbers (Base 2) divisible by 4:
+
+![div by 4](https://github.com/kardasbart/divisibility-regex/raw/master/images/bin_div_4_init.png "div by 4")
 
 ```bash
-python main.py 2 3
+python main.py 2 4
 
 ```
 
 **Output:**
 
 ```text
-Final regex (length 20):
-^((0|1(0(1)*0)*1))*$
+Final regex (length 35):
+^((0|1(0|1(1)*0)(1(0|1(1)*0))*0))*$
 Performed 10k tests, failed: 0
 ```
 
