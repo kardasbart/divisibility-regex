@@ -50,10 +50,32 @@ def draw_labeled_multigraph(G, attr_name, ax=None):
     
     plt.show()
     
-def compose_default_regex(begin, inner, end):
-    middle = f"({inner})*" if inner else ""
-    return f"{begin}{middle}{end}"
+def is_atomic(regex):
+    """Checks if the regex is atomic (doesn't need parens for *)"""
+    if not regex: return True
+    if len(regex) == 1: return True
+    if regex.startswith('[') and regex.endswith(']') and regex.find(']', 1, -1) == -1:
+        return True
+    if regex.startswith('(') and regex.endswith(')'):
+        depth = 0
+        for i, char in enumerate(regex):
+            if char == '(': depth += 1
+            elif char == ')': depth -= 1
+            if depth == 0 and i < len(regex) - 1:
+                return False
+        return True
+    if len(regex) == 2 and regex[0] == '\\': return True
+    return False
 
+def format_star(inner):
+    if not inner: return ""
+    if is_atomic(inner):
+        return f"{inner}*"
+    return f"({inner})*"
+
+def compose_default_regex(begin, inner, end):
+    middle = format_star(inner)
+    return f"{begin}{middle}{end}"
 
 def create_edge_regex(ein, eout, label):
     return (ein[0], eout[1]), {"label" : label}
@@ -64,36 +86,189 @@ def retrive_label(edge):
 def retrive_labels(edges):
     return [retrive_label(e) for e in edges]
 
-def merge_labels(labels):
-    if len(labels) >= 2:
-        patern = labels[0]
-        target = labels[1]
-        if patern in target:
-            rx = re.compile(r"(\[.*\])\+(\[.*\])")
-            match = rx.match(target)
-            if match is not None:
-                labels = [f"{match.group(1)}*{match.group(2)}"] + (labels[2:] if len(labels) > 2 else [])
-    return labels
+def common_prefix(s1, s2):
+    min_len = min(len(s1), len(s2))
+    for i in range(min_len):
+        if s1[i] != s2[i]:
+            return s1[:i]
+    return s1[:min_len]
 
+def get_balanced_prefix_len(s):
+    """Returns valid lengths of prefixes that are balanced"""
+    valid_indices = {0}
+    stack = []
+    in_bracket = False
+    escaped = False
+    
+    for i, char in enumerate(s):
+        if escaped:
+            escaped = False
+        elif char == '\\':
+            escaped = True
+        elif in_bracket:
+            if char == ']':
+                in_bracket = False
+        else:
+            if char == '[':
+                in_bracket = True
+            elif char == '(':
+                stack.append('(')
+            elif char == ')':
+                if not stack: 
+                     return valid_indices
+                stack.pop()
+        
+        if not in_bracket and not stack and not escaped:
+            valid_indices.add(i + 1)
+            
+    return valid_indices
+
+def factor_labels(labels):
+    if len(labels) < 2: return labels
+    labels = sorted(labels)
+    new_labels = []
+    
+    i = 0
+    while i < len(labels):
+        group = [labels[i]]
+        best_prefix = ""
+        
+        # Look ahead for matches
+        for j in range(i + 1, len(labels)):
+            cp = common_prefix(group[0], labels[j])
+            valid_lens = get_balanced_prefix_len(cp)
+            # Pick longest valid length
+            # Filter valid_lens to be <= len(cp)
+            safe_len = max([l for l in valid_lens if l <= len(cp)] + [0])
+            p = cp[:safe_len]
+            
+            if len(p) > 2:
+                # If we have a current best_prefix, check if this p is compatible (should be, since sorted)
+                # But as we add more items, the common prefix shrinks.
+                # We want to greedily grab the largest group with a "good enough" prefix?
+                # Or just grab pairs?
+                # Strategy: Grab all that share at least len 3 prefix.
+                # If adding label[j] reduces prefix length below 3, stop group.
+                
+                # Current common prefix of the WHOLE group + new item
+                # Actually, we should check common prefix of new item with current group's common prefix.
+                
+                if len(group) == 1:
+                    current_common = p
+                else:
+                    # intersect current_common and p
+                    # Since sorted, p is common between first and j-th. 
+                    # The CP of the group is determined by first and last?
+                    # Yes, for sorted strings, CP(list) = CP(first, last).
+                    current_common = common_prefix(group[-1], labels[j]) # wait.
+                    # CP(group + new) = CP(group_first, new) AND CP(group_last, new) ?
+                    # Actually CP(S) = CP(min(S), max(S)).
+                    # Since 'labels' is sorted, we just check CP(labels[i], labels[j]).
+                    
+                    # Update current_common with new constraint
+                    cp_new = common_prefix(labels[i], labels[j])
+                    v_new = get_balanced_prefix_len(cp_new)
+                    safe_len_new = max([l for l in v_new if l <= len(cp_new)] + [0])
+                    p = cp_new[:safe_len_new]
+                
+                if len(p) > 2:
+                    best_prefix = p
+                    group.append(labels[j])
+                else:
+                    break
+            else:
+                 break
+        
+        if len(group) > 1:
+            # Create factored label
+            remainders = []
+            for g in group:
+                rem = g[len(best_prefix):]
+                remainders.append(rem)
+            
+            # Recursively factor remainders?
+            # Yes, might be useful.
+            remainders = factor_labels(remainders)
+            
+            # Join remainders. Handle empty.
+            # If empty string in remainders, it means one label was exactly the prefix.
+            # "Prefix" | "PrefixA" -> Prefix( |A).
+            rems_str = []
+            has_empty = False
+            for r in remainders:
+                if r == "": has_empty = True
+                else: rems_str.append(r)
+            
+            suffix = ""
+            if not rems_str:
+                suffix = "" # All were empty? impossible if set unique
+            elif len(rems_str) == 1:
+                suffix = rems_str[0]
+            else:
+                suffix = "(" + "|".join(rems_str) + ")"
+            
+            if has_empty:
+                # P(|S) -> P(S)? 
+                # P(S|) -> P(S?)?
+                # If suffix is (A|B), we need (A|B|) -> (A|B)?
+                if suffix == "":
+                    # Meaning we had "" and empty list?
+                    label = best_prefix
+                else:
+                    # Check if suffix is (...)
+                    if suffix.startswith('(') and suffix.endswith(')'):
+                         # (A|B)| -> (A|B)?
+                         # We can't easily express ? in our limited set without adding ? support
+                         # But (A|B|) is valid regex.
+                         label = f"{best_prefix}(|{suffix})"
+                         # Wait, (|A) is valid? Yes.
+                    else:
+                         label = f"{best_prefix}(|{suffix})"
+            else:
+                label = f"{best_prefix}{suffix}"
+            
+            new_labels.append(label)
+            i += len(group)
+        else:
+            new_labels.append(labels[i])
+            i += 1
+            
+    return new_labels
 
 def edges2regex(edges):
-    result = ""
-    if len(edges):
-        digits_edges = [e for e in edges if len(retrive_label(e)) == 1]
-        other_edges = [e for e in edges if len(retrive_label(e)) != 1]
-        labels = retrive_labels(other_edges)
-        
-        if len(digits_edges) > 1:
-            digits_labels = "[" + "".join(retrive_labels(digits_edges)) + "]"
-            labels.append(digits_labels)
-        elif len(digits_edges) == 1:
-            labels.append(retrive_label(digits_edges[0]))
-        labels = sorted(list(set(labels)),key=lambda x: (len(x),x))
-        if len(labels) == 1:
-            result = labels[0]
+    if not edges: return ""
+    
+    raw_labels = retrive_labels(edges)
+    
+    complex_labels = []
+    chars = set()
+    
+    for l in raw_labels:
+        if len(l) == 1:
+            chars.add(l)
+        elif l.startswith('[') and l.endswith(']') and l.find(']', 1, -1) == -1:
+             chars.update(l[1:-1])
         else:
-            result = "(" + "|".join(labels) + ")"
-    return result
+            complex_labels.append(l)
+            
+    if chars:
+        sorted_chars = sorted(list(chars))
+        if len(sorted_chars) == 1:
+            complex_labels.append(sorted_chars[0])
+        else:
+            complex_labels.append("[" + "".join(sorted_chars) + "]")
+    
+    # Factor labels
+    # Use set to dedup before factoring
+    labels = sorted(list(set(complex_labels)), key=lambda x: x) # Lexicographical sort for prefixing
+    labels = factor_labels(labels)
+    # Sort by length for final aesthetic?
+    labels = sorted(labels, key=lambda x: (len(x), x))
+    
+    if len(labels) == 1:
+        return labels[0]
+    else:
+        return "(" + "|".join(labels) + ")"
 
 def groupby(edges, key):
     values = set(map(lambda x:x[key], edges))
@@ -134,6 +309,26 @@ def get_node_weight(graph, nodeid):
     num_out = len(out_neighbors)
     return (num_in * num_out) - (num_in + num_out)
 
+def get_node_weight_regex_len(graph, nodeid):
+    loops = [e for e in graph.edges.data() if e[0] == e[1] == nodeid]
+    edge_in = [e for e in graph.edges.data() if e[1] == nodeid and e[0] != e[1]]
+    edge_out = [e for e in graph.edges.data() if e[0] == nodeid and e[0] != e[1]]
+    
+    rloops = edges2regex(loops)
+    
+    ins = groupby(edge_in, 0)
+    outs = groupby(edge_out, 1)
+    
+    new_len = 0
+    for ein in ins:
+        rins = edges2regex(ein)
+        for eout in outs:
+            routs = edges2regex(eout)
+            label = compose_default_regex(rins, rloops, routs)
+            new_len += len(label)
+            
+    return new_len
+
 def main():
     args = parse_args()
     graph = nx.MultiDiGraph()
@@ -147,7 +342,7 @@ def main():
 
     nodes_to_eliminate = list(range(1,args.div))
     while nodes_to_eliminate:
-        best_node = min(nodes_to_eliminate, key=lambda n: get_node_weight(graph, n))
+        best_node = min(nodes_to_eliminate, key=lambda n: get_node_weight_regex_len(graph, n))
         if args.draw:
             draw_labeled_multigraph(graph, "label")
         graph = substitute_node(graph, best_node)
