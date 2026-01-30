@@ -235,10 +235,8 @@ def factor_labels(labels):
             
     return new_labels
 
-def edges2regex(edges):
-    if not edges: return ""
-    
-    raw_labels = retrive_labels(edges)
+def labels2regex(raw_labels):
+    if not raw_labels: return ""
     
     complex_labels = []
     chars = set()
@@ -258,17 +256,63 @@ def edges2regex(edges):
         else:
             complex_labels.append("[" + "".join(sorted_chars) + "]")
     
-    # Factor labels
-    # Use set to dedup before factoring
-    labels = sorted(list(set(complex_labels)), key=lambda x: x) # Lexicographical sort for prefixing
+    labels = sorted(list(set(complex_labels)), key=lambda x: x)
     labels = factor_labels(labels)
-    # Sort by length for final aesthetic?
     labels = sorted(labels, key=lambda x: (len(x), x))
     
     if len(labels) == 1:
         return labels[0]
     else:
         return "(" + "|".join(labels) + ")"
+
+def edges2regex(edges):
+    if not edges: return ""
+    return labels2regex(retrive_labels(edges))
+
+def check_suffix_based(base, div):
+    try:
+        if div <= 1: return 1
+        rem = 1
+        limit_k = 6 
+        for k in range(1, limit_k + 1):
+            rem = (rem * base) % div
+            if rem == 0:
+                count = (base ** k) // div 
+                if count <= 200:
+                    return k
+        return None
+    except:
+        return None
+
+def generate_suffix_regex(base, div, k):
+    # Short
+    short_labels = []
+    for l in range(1, k):
+        for chars in it.product([np.base_repr(i, base=base) for i in range(base)], repeat=l):
+            s = "".join(chars)
+            val = int(s, base)
+            if val % div == 0:
+                short_labels.append(s)
+                
+    # Long
+    long_labels = []
+    for chars in it.product([np.base_repr(i, base=base) for i in range(base)], repeat=k):
+        s = "".join(chars)
+        val = int(s, base)
+        if val % div == 0:
+            long_labels.append(s)
+
+    short_regex = labels2regex(short_labels)
+    long_suffix_regex = labels2regex(long_labels)
+    
+    all_digits = [np.base_repr(i, base=base) for i in range(base)]
+    prefix_regex = labels2regex(all_digits)
+    prefix = format_star(prefix_regex)
+    
+    if short_regex:
+        return f"^({short_regex}|{prefix}{long_suffix_regex})$"
+    else:
+        return f"^{prefix}{long_suffix_regex}$"
 
 def groupby(edges, key):
     values = set(map(lambda x:x[key], edges))
@@ -331,25 +375,35 @@ def get_node_weight_regex_len(graph, nodeid):
 
 def main():
     args = parse_args()
-    graph = nx.MultiDiGraph()
-    for n in range(args.div):
-        graph.add_node(n)
-
-    for n in range(args.div):
-        for e in range(args.base):
-            dst = (n * args.base + e) % args.div
-            graph.add_edge(n,dst,label=str(e))
-
-    nodes_to_eliminate = list(range(1,args.div))
-    while nodes_to_eliminate:
-        best_node = min(nodes_to_eliminate, key=lambda n: get_node_weight_regex_len(graph, n))
-        if args.draw:
-            draw_labeled_multigraph(graph, "label")
-        graph = substitute_node(graph, best_node)
-        nodes_to_eliminate.remove(best_node)
-
-    inner_regex = edges2regex(graph.edges.data())
-    result_regex = "^" + compose_default_regex ("", inner_regex, "") + "$"
+    
+    # Check for suffix optimization
+    k = check_suffix_based(args.base, args.div)
+    if k:
+        print(f"Suffix optimization detected (last {k} digits determine divisibility).")
+        result_regex = generate_suffix_regex(args.base, args.div, k)
+    else:
+        graph = nx.MultiDiGraph()
+        for n in range(args.div):
+            graph.add_node(n)
+    
+        for n in range(args.div):
+            for e in range(args.base):
+                dst = (n * args.base + e) % args.div
+                # FIX: use np.base_repr for labels > 9
+                label_val = np.base_repr(e, base=args.base)
+                graph.add_edge(n,dst,label=label_val)
+    
+        nodes_to_eliminate = list(range(1,args.div))
+        while nodes_to_eliminate:
+            best_node = min(nodes_to_eliminate, key=lambda n: get_node_weight_regex_len(graph, n))
+            if args.draw:
+                draw_labeled_multigraph(graph, "label")
+            graph = substitute_node(graph, best_node)
+            nodes_to_eliminate.remove(best_node)
+    
+        inner_regex = edges2regex(graph.edges.data())
+        result_regex = "^" + compose_default_regex ("", inner_regex, "") + "$"
+        
     result_length = len(result_regex)
     print(f"Final regex (length {result_length}):")
     if result_length > 1000:
@@ -358,7 +412,22 @@ def main():
         print(result_regex)
     rlen = len(result_regex)
     if rlen < 5000:
-        rgx = re.compile(f"^{result_regex}$")
+        rgx = re.compile(f"^{result_regex}$") # regex in main logic might be full string already
+        # Wait, suffix regex includes anchors ^ and $.
+        # graph regex does too.
+        # But verification adds wrapping anchors `^...$`.
+        # My graph regex construct line 352 adds anchors.
+        # My suffix regex construct adds anchors.
+        # So result_regex HAS anchors.
+        # But verification `rgx = re.compile(f"^{result_regex}$")` adds MORE anchors?
+        # `^^...$$`? Python accepts it?
+        # Safe to remove anchors from result_regex before compiling verification or fix verification.
+        # I'll fix verification to NOT add anchors if they exist.
+        
+        # Actually simplest: Strip anchors.
+        clean_regex = result_regex.strip("^$")
+        rgx = re.compile(f"^{clean_regex}$")
+        
         fails = 0
         for num in range(0, 10000):
             m = check_div(args.base, rgx, num)
@@ -366,8 +435,6 @@ def main():
             if m != m2:
                 fails+=1
         print(f"Performed 10k tests, failed: {fails}")
-
-
 
 if __name__ == "__main__":
     main()
