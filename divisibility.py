@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import itertools as it
 import re
+import sympy.ntheory as ntheory
 from typing import List, Set, Dict, Tuple, Optional, Any
 
 class RegexUtils:
@@ -644,6 +645,91 @@ class DivisibilityApp:
         else:
             solver = DivisibilityGraph(args.base, args.div, args.draw)
             result_regex = solver.solve()
+
+    @staticmethod
+    def get_factors(div: int) -> Dict[int, int]:
+        """Returns prime factorization as a dict {prime: power}."""
+        return ntheory.factorint(div)
+
+    @staticmethod
+    def solve_composite(base: int, div: int, draw: bool) -> str:
+        k_global = SuffixSolver.check_suffix_based(base, div)
+        if k_global:
+            print(f"Global suffix optimization detected for divisor {div} (last {k_global} digits).")
+            return SuffixSolver.generate_regex(base, div, k_global)
+
+        factors = DivisibilityApp.get_factors(div)
+        
+        # If passed a prime power that wasn't suffix based (or just one factor), use graph
+        if len(factors) <= 1:
+            solver = DivisibilityGraph(base, div, draw)
+            return solver.solve()
+        
+        print(f"Composite divisor {div} detected. Factors: {factors}")
+        
+        suffix_group = 1
+        graph_factors = []
+        
+        for p, power in factors.items():
+            f = p ** power
+            # Check if this factor is suffix-based
+            k = SuffixSolver.check_suffix_based(base, f)
+            if k:
+                suffix_group *= f
+            else:
+                graph_factors.append(f)
+                
+        regexes = []
+        
+        # Process the suffix group
+        if suffix_group > 1:
+            # We re-verify the suffix property for the group. 
+            # It should maintain the property with k = max(k_factors).
+            k_group = SuffixSolver.check_suffix_based(base, suffix_group)
+            if k_group:
+                print(f"Merged suffix factors into {suffix_group} (last {k_group} digits).")
+                regexes.append(SuffixSolver.generate_regex(base, suffix_group, k_group))
+            else:
+                # Fallback if merger fails (unlikely given logic): process individually
+                # But since we already established they are suffix based, we can just split them back?
+                # Or just treat the group as graph?
+                # Let's treat as graph for safety, or individual lookaheads.
+                # Given our reasoning, k_group should exist. 
+                # If it fails, it might be due to 200 limit (but picking more specific suffix should reduce count).
+                # Fallback: Treat as graph.
+                print(f"Warning: Merged suffix group {suffix_group} failed check. Fallback to graph.")
+                solver = DivisibilityGraph(base, suffix_group, draw)
+                regexes.append(solver.solve())
+        
+        # Process graph factors
+        for f in graph_factors:
+            # Recursively solve? Or just Graph?
+            # Since f is a prime power and NOT suffix based (we checked), 
+            # and solve_composite for prime power -> checks suffix (False) -> Graph.
+            # So we can just instantiate Graph directly.
+            print(f"Using graph for factor {f}.")
+            solver = DivisibilityGraph(base, f, draw)
+            regexes.append(solver.solve())
+            
+        # Combine regexes
+        if not regexes: return "" # Should not happen
+        if len(regexes) == 1: return regexes[0]
+        
+        regexes.sort(key=len)
+        main_regex = regexes.pop()
+        
+        final_regex = ""
+        for r in regexes:
+             final_regex += f"(?={r})"
+        final_regex += main_regex
+        
+        return final_regex
+
+    @staticmethod
+    def run():
+        args = DivisibilityApp.parse_args()
+        
+        result_regex = DivisibilityApp.solve_composite(args.base, args.div, args.draw)
             
         result_length = len(result_regex)
         print(f"Final regex (length {result_length}):")
