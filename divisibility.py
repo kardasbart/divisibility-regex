@@ -625,7 +625,8 @@ class DivisibilityApp:
         parser.add_argument('base', type=int, help='numeric system base')
         parser.add_argument('div', type=int, help='generate regex for divisibility by \'div\'')
         parser.add_argument('--draw', action='store_true', help='draw graph at each step')
-        parser.add_argument('--no-reps', action='store_true', help='disable repetition optimization') # Keeping arg for backward compatibility but not using it?
+        parser.add_argument('--no-reps', action='store_true', help='disable repetition optimization')
+        parser.add_argument('--no-lookahead', action='store_true', help='disable lookahead-based factorization')
         return parser.parse_args()
 
     @staticmethod
@@ -652,7 +653,7 @@ class DivisibilityApp:
         return ntheory.factorint(div)
 
     @staticmethod
-    def solve_composite(base: int, div: int, draw: bool) -> str:
+    def solve_composite(base: int, div: int, draw: bool, no_lookahead: bool = False) -> str:
         k_global = SuffixSolver.check_suffix_based(base, div)
         if k_global:
             print(f"Global suffix optimization detected for divisor {div} (last {k_global} digits).")
@@ -661,7 +662,7 @@ class DivisibilityApp:
         factors = DivisibilityApp.get_factors(div)
         
         # If passed a prime power that wasn't suffix based (or just one factor), use graph
-        if len(factors) <= 1:
+        if len(factors) <= 1 or no_lookahead:
             solver = DivisibilityGraph(base, div, draw)
             return solver.solve()
         
@@ -729,7 +730,7 @@ class DivisibilityApp:
     def run():
         args = DivisibilityApp.parse_args()
         
-        result_regex = DivisibilityApp.solve_composite(args.base, args.div, args.draw)
+        result_regex = DivisibilityApp.solve_composite(args.base, args.div, args.draw, args.no_lookahead)
             
         result_length = len(result_regex)
         print(f"Final regex (length {result_length}):")
