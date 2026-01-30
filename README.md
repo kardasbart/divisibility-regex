@@ -1,65 +1,69 @@
 # Divisibility Regex Generator
 
-This tool generates a **Regular Expression** that matches the string representation of any number divisible by a given divisor  in a specified numeric base .
+This tool generates a **Regular Expression** that matches the string representation of any number divisible by a given divisor in a specified numeric base.
 
-It works by constructing a Deterministic Finite Automaton (DFA) where states represent the remainder of the number modulo , and then converting that DFA into a regular expression using the **State Elimination Method**.
+It employs multiple strategies including **DFA State Elimination**, **Suffix Analysis**, and **Lookahead Factorization** to generate the most concise regex possible.
 
 ## 🚀 How It Works
 
-1. **DFA Construction**: The script builds a directed graph where:
-* **Nodes**: Represent remainders .
-* **Edges**: For every state  and digit , an edge exists to state .
+The tool automatically selects the best strategy based on the divisor and base:
 
+1.  **Suffix Optimization**:
+    *   For divisors where divisibility depends only on the last $k$ digits (e.g., divisible by 2, 4, 5, 10 in decimal), the tool generates a simple pattern matching those suffixes.
+    *   This produces extremely short regexes compared to the DFA approach.
 
-2. **State Elimination**: To convert the graph into a regex, the script iteratively removes nodes. When a node is removed, it updates the labels of the remaining edges to include the patterns of the paths that used to pass through the deleted node.
-3. **Heuristic Optimization**: The script uses a "weight" heuristic to decide which node to eliminate next, aiming to keep the resulting regex as short as possible by minimizing the product of incoming and outgoing edges.
-4. **Verification**: After generating the regex, the script runs 10,000 tests to ensure the regex correctly identifies divisible numbers compared to the modulo operator.
+2.  **Composite Factorization with Lookaheads**:
+    *   If the divisor is composite (e.g., 6 = 2 * 3), the tool splits it into coprime factors.
+    *   It generates a regex for each factor and combines them using **Positive Lookaheads** `(?=...)`.
+    *   *Example*: Divisibility by 6 becomes `(?=.*divisible_by_2)divisible_by_3`. This intersection often results in much shorter patterns than a monolithic DFA for large divisors.
+
+3.  **DFA Construction & State Elimination**:
+    *   For prime factors or cases where other optimizations don't apply, it builds a graph where nodes represent remainders.
+    *   **State Elimination**: It iteratively removes nodes from the graph.
+    *   **Heuristic Optimization**: A "weight" heuristic picks the cheapest node to eliminate next to minimize regex explosion.
+    *   **Repetition Optimization**: Merges repeated patterns like `AA` into `A{2}` or `A{2,4}`.
 
 ## 🛠 Installation
 
 Ensure you have Python installed along with the required dependencies:
 
 ```bash
-pip install networkx matplotlib numpy PyQt5
-
+pip install networkx matplotlib numpy sympy
 ```
 
 ## 📖 Usage
 
-Run the script from the command line by providing the **base** and the **divisor**.
+Run the script from the command line:
 
 ```bash
-python main.py <base> <divisor> [--draw]
-
+python divisibility.py <base> <divisor> [options]
 ```
 
 ### Arguments:
 
-* `base`: The number system (e.g., `2` for binary, `10` for decimal).
-* `div`: The number you want to check divisibility for.
-* `--draw`: (Optional) Use this flag to open a window visualizing the graph reduction process at every step.
+*   `base`: The number system (e.g., `2` for binary, `10` for decimal).
+*   `div`: The number you want to check divisibility for.
+*   `--draw`: (Optional) Open a window visualizing the graph reduction process (for DFA method).
+*   `--no-reps`: (Optional) Disable `{m,n}` repetition optimizations.
+*   `--no-lookahead`: (Optional) Disable splitting composite numbers; forces a single giant DFA.
 
-### Example: Binary Divisibility by 4
-
-To find the regex for binary numbers (Base 2) divisible by 4:
-
-![div by 4](https://github.com/kardasbart/divisibility-regex/raw/master/images/bin_div_4_init.png "div by 4")
+### Example: Binary Divisibility by 6
 
 ```bash
-python main.py 2 4
-
+python divisibility.py 2 6
 ```
 
 **Output:**
-
 ```text
-Final regex (length 35):
-^((0|1(0|1(1)*0)(1(0|1(1)*0))*0))*$
+Composite divisor 6 detected. Factors: {2: 1, 3: 1}
+Final regex (length 18):
+^(?=(0|1)*0)(1(01*0)*1|0)*$
 Performed 10k tests, failed: 0
 ```
 
 ## 🔍 Code Structure
 
-* `substitute_node()`: The core logic for removing a state and re-routing edges using Kleene star operations.
-* `edges2regex()`: Handles the formatting of labels, including combining multiple digits into character sets (e.g., `[02468]`).
-* `get_node_weight()`: A greedy heuristic to pick the "cheapest" node to eliminate to prevent exponential growth of the regex string.
+*   `DivisibilityGraph`: Manages the graph nodes and edges for the DFA method.
+*   `RegexOptimizer`: Handles simplification (`factor_labels`, `simplify_repetitions`) and merging of edges.
+*   `SuffixSolver`: specialized solver for divisors defined by trailing digits.
+*   `DivisibilityApp`: Orchestrates the strategy selection (Suffix vs. Composite vs. Graph).
