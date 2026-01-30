@@ -11,6 +11,7 @@ def parse_args():
     parser.add_argument('base', type=int, help='numeric system base')
     parser.add_argument('div', type=int, help='generate regex for divisibility by \'div\'')
     parser.add_argument('--draw', action='store_true', help='draw graph at each step')
+    parser.add_argument('--no-reps', action='store_true', help='disable repetition optimization')
     args = parser.parse_args()
     return args
 
@@ -65,6 +66,13 @@ def is_atomic(regex):
                 return False
         return True
     if len(regex) == 2 and regex[0] == '\\': return True
+    if len(regex) > 3 and regex[-1] == '}' and '{' in regex:
+        # Check if it's atomic{m,n}
+        # Find last {
+        start_brace = regex.rfind('{')
+        if start_brace > 0:
+            core = regex[:start_brace]
+            return is_atomic(core)
     return False
 
 def format_star(inner):
@@ -117,11 +125,265 @@ def get_balanced_prefix_len(s):
                 if not stack: 
                      return valid_indices
                 stack.pop()
+            elif char == '{':
+                # Start of repetition, treated like a bracket effectively for splitting
+                # We should NOT split inside {}
+                in_bracket = True
+            elif char == '}':
+                # Should not happen if strictly correct regex unless inside bracket
+                # But here we treat { ... } as atomic block for splitting purposes
+                # Actually, our in_bracket logic handles it if we treat { as [
+                pass 
         
+        # We handle { by entering in_bracket mode. But { isn't exactly [.
+        # It's fine for now, assuming valid regex.
+        if char == '}' and in_bracket:
+             # This is weak if we have [ ... { ... ] but simplified for now
+             in_bracket = False
+
         if not in_bracket and not stack and not escaped:
             valid_indices.add(i + 1)
             
     return valid_indices
+    return valid_indices
+
+def get_balanced_suffix_len(s):
+    """Returns valid lengths of suffixes that are balanced (from the end)"""
+    valid_lens = {0}
+    stack = []
+    
+    n = len(s)
+    in_bracket = False
+    
+    for i in range(n - 1, -1, -1):
+        char = s[i]
+        
+        # Check escape
+        bs_count = 0
+        k = i - 1
+        while k >= 0 and s[k] == '\\':
+            bs_count += 1
+            k -= 1
+        
+        is_escaped = (bs_count % 2 == 1)
+        
+        if is_escaped:
+            pass 
+        elif in_bracket:
+            if char == '[': # Closing the bracket (since we are going backwards)
+                 in_bracket = False
+        else:
+            if char == ']':
+                in_bracket = True
+            elif char == ')':
+                stack.append(')')
+            elif char == '(':
+                if not stack:
+                    return valid_lens
+                stack.pop()
+            elif char == '}':
+                in_bracket = True 
+            elif char == '{':
+                if in_bracket: in_bracket = False
+        
+        if not in_bracket and not stack:
+             # Check if the split point (n - i) is safe.
+             # Suffix starts at s[i].
+             # If s[i] is a quantifier, then this suffix relies on preceding atom.
+             # So we cannot act as if this suffix is independent.
+             if s[i] in {'*', '+', '?', '{'}:
+                 # Safe only if escaped?
+                 # We checked escape above.
+                 # If we are here, s[i] is the char.
+                 # We need to know if it was escaped.
+                 # We calculated is_escaped for s[i].
+                 if not is_escaped:
+                      pass # Reject
+                 else:
+                      valid_lens.add(n - i)
+             else:
+                 valid_lens.add(n - i)
+             
+    return valid_lens
+
+def common_suffix(s1, s2):
+    min_len = min(len(s1), len(s2))
+    for i in range(1, min_len + 1):
+        if s1[-i] != s2[-i]:
+            if i == 1: return ""
+            return s1[-(i-1):]
+    return s1[-min_len:]
+
+def factor_suffixes(labels):
+    if len(labels) < 2: return labels
+    labels = sorted(labels, key=lambda x: x[::-1])
+    new_labels = []
+    
+    i = 0
+    while i < len(labels):
+        group = [labels[i]]
+        best_suffix = ""
+        
+        for j in range(i + 1, len(labels)):
+            cs = common_suffix(group[0], labels[j]) 
+            valid_lens = get_balanced_suffix_len(cs)
+            safe_len = max([l for l in valid_lens if l <= len(cs)] + [0])
+            s = cs[-safe_len:] if safe_len > 0 else ""
+            
+            if len(s) >= 1: 
+                if len(group) == 1:
+                    current_common = s
+                else:
+                    cs_new = common_suffix(labels[i], labels[j]) 
+                    v_new = get_balanced_suffix_len(cs_new)
+                    safe_len_new = max([l for l in v_new if l <= len(cs_new)] + [0])
+                    s = cs_new[-safe_len_new:] if safe_len_new > 0 else ""
+                
+                if len(s) >= 1:
+                    best_suffix = s
+                    group.append(labels[j])
+                else:
+                    break
+            else:
+                break
+        
+        if len(group) > 1:
+            prefixes = []
+            for g in group:
+                if len(best_suffix) == len(g):
+                    prefixes.append("")
+                else:
+                    prefixes.append(g[:-len(best_suffix)])
+            
+            prefixes = factor_labels(prefixes)
+            
+            p_strs = [p for p in prefixes if p != ""]
+            has_empty = any(p == "" for p in prefixes)
+            
+            if not p_strs:
+                prefix_str = ""
+            elif len(p_strs) == 1:
+                prefix_str = p_strs[0]
+            else:
+                prefix_str = "(" + "|".join(p_strs) + ")"
+            
+            if has_empty:
+                if prefix_str == "":
+                    label = best_suffix
+                else:
+                    label = f"(|{prefix_str}){best_suffix}"
+            else:
+                label = f"{prefix_str}{best_suffix}"
+                
+            new_labels.append(label)
+            i += len(group)
+        else:
+            new_labels.append(labels[i])
+            i += 1
+            
+    return new_labels
+def get_repetition_info(s):
+    """
+    Checks if s consists of repeating a substring p, n times.
+    Returns (p, n) where n is maximal.
+    """
+    if not s: return s, 1
+    n_len = len(s)
+    # Try meaningful small units first? Or smallest unit?
+    # Smallest unit maximizes count.
+    for unit_len in range(1, n_len // 2 + 1):
+        if n_len % unit_len == 0:
+            unit = s[:unit_len]
+            if unit * (n_len // unit_len) == s:
+                return unit, n_len // unit_len
+    return s, 1
+
+def simplify_repetitions(labels):
+    """
+    Scans labels for patterns like X, XX, XXX and merges them into X{1,3}.
+    Also handles X{m}, X{n} logic if labels came pre-processed (unlikely).
+    """
+    # Parse all labels into (root, count)
+    parsed = []
+    for l in labels:
+        root, count = get_repetition_info(l)
+        parsed.append({'original': l, 'root': root, 'count': count})
+        
+    # Group by root
+    parsed.sort(key=lambda x: x['root'])
+    
+    new_labels = []
+    
+    for root, group in it.groupby(parsed, key=lambda x: x['root']):
+        group_list = list(group)
+        # Sort by count
+        group_list.sort(key=lambda x: x['count'])
+        
+        # Find contiguous ranges or beneficial merges
+        # We have counts c1, c2, c3...
+        # If we have 1, 2, 3 -> {1,3}
+        # If we have 1, 2, 4 -> {1,2}|{4} (probably)
+        
+        counts = [g['count'] for g in group_list]
+        
+        # Simple greedy range finding
+        i = 0
+        while i < len(counts):
+            start = counts[i]
+            j = i + 1
+            while j < len(counts) and counts[j] == counts[j-1] + 1:
+                j += 1
+            
+            end = counts[j-1]
+            
+            # Candidate: root{start, end}
+            # Or root{start} if start==end
+            
+            # Calculate cost
+            # Original cost: sum(len(original)) for items in range
+            original_cost = sum(len(group_list[k]['original']) for k in range(i, j))
+            
+            # New cost
+            root_regex = root
+            if not is_atomic(root):
+                root_regex = f"({root})"
+            
+            if start == end:
+                if start == 1:
+                    new_label = root_regex
+                else:
+                    new_label = f"{root_regex}{{{start}}}"
+            else:
+                if start == 1:
+                    if end == 1: 
+                        new_label = root_regex # Should be covered above
+                    else:
+                        new_label = f"{root_regex}{{1,{end}}}"
+                else:
+                    new_label = f"{root_regex}{{{start},{end}}}"
+            
+            # Check length + overhead of '|'
+            # overhead is (count - 1) pipes
+            saved_pipes = (j - i) - 1
+            
+            # If we merge, we have 1 item instead of (j-i).
+            # So meaningful comparison is:
+            # Cost OLD = original_cost + saved_pipes
+            # Cost NEW = len(new_label)
+            
+            cost_old = original_cost + saved_pipes
+            cost_new = len(new_label)
+            
+            if cost_new < cost_old:
+                new_labels.append(new_label)
+            else:
+                # Keep original
+                for k in range(i, j):
+                    new_labels.append(group_list[k]['original'])
+            
+            i = j
+            
+    return new_labels
 
 def factor_labels(labels):
     if len(labels) < 2: return labels
@@ -142,38 +404,59 @@ def factor_labels(labels):
             safe_len = max([l for l in valid_lens if l <= len(cp)] + [0])
             p = cp[:safe_len]
             
-            if len(p) > 2:
-                # If we have a current best_prefix, check if this p is compatible (should be, since sorted)
-                # But as we add more items, the common prefix shrinks.
-                # We want to greedily grab the largest group with a "good enough" prefix?
-                # Or just grab pairs?
-                # Strategy: Grab all that share at least len 3 prefix.
-                # If adding label[j] reduces prefix length below 3, stop group.
+            if len(p) >= 1:
+                # Check if p is safe for group[0] and labels[j]
+                # A split is unsafe if the character immediately following p is a quantifier.
                 
-                # Current common prefix of the WHOLE group + new item
-                # Actually, we should check common prefix of new item with current group's common prefix.
+                unsafe = False
+                for candidate in [group[0], labels[j]]:
+                    if len(candidate) > len(p):
+                        next_char = candidate[len(p)]
+                        if next_char in {'*', '+', '?', '{'}:
+                            unsafe = True
+                            break
+                            
+                if not unsafe:
+                    if len(group) == 1:
+                        current_common = p
+                    else:
+                        # intersect current_common and p
+                        # Since sorted, p is common between first and j-th. 
+                        # The CP of the group is determined by first and last?
+                        # Yes, for sorted strings, CP(list) = CP(first, last).
+                        current_common = common_prefix(group[-1], labels[j]) # wait.
+                        # CP(group + new) = CP(group_first, new) AND CP(group_last, new) ?
+                        # Actually CP(S) = CP(min(S), max(S)).
+                        # Since 'labels' is sorted, we just check CP(labels[i], labels[j]).
+                        
+                        # Update current_common with new constraint
+                        cp_new = common_prefix(labels[i], labels[j])
+                        v_new = get_balanced_prefix_len(cp_new)
+                        safe_len_new = max([l for l in v_new if l <= len(cp_new)] + [0])
+                        p = cp_new[:safe_len_new]
                 
-                if len(group) == 1:
-                    current_common = p
-                else:
-                    # intersect current_common and p
-                    # Since sorted, p is common between first and j-th. 
-                    # The CP of the group is determined by first and last?
-                    # Yes, for sorted strings, CP(list) = CP(first, last).
-                    current_common = common_prefix(group[-1], labels[j]) # wait.
-                    # CP(group + new) = CP(group_first, new) AND CP(group_last, new) ?
-                    # Actually CP(S) = CP(min(S), max(S)).
-                    # Since 'labels' is sorted, we just check CP(labels[i], labels[j]).
+                if len(p) >= 1:
+                    # Validate p again for the new candidate (labels[j]) and existing group
+                    # Actually we just updated p. We must check safety on labels[j] and group[0]
+                    # We only need to check safety if we reduced p?
+                    # Or if labels[j] has a quantifier at the new cut point.
                     
-                    # Update current_common with new constraint
-                    cp_new = common_prefix(labels[i], labels[j])
-                    v_new = get_balanced_prefix_len(cp_new)
-                    safe_len_new = max([l for l in v_new if l <= len(cp_new)] + [0])
-                    p = cp_new[:safe_len_new]
-                
-                if len(p) > 2:
-                    best_prefix = p
-                    group.append(labels[j])
+                    unsafe = False
+                    # Check labels[j]
+                    if len(labels[j]) > len(p):
+                        if labels[j][len(p)] in {'*', '+', '?', '{'}:
+                            unsafe = True
+                    
+                    # Check group representative (since p applies to whole group)
+                    if not unsafe and len(group[0]) > len(p):
+                         if group[0][len(p)] in {'*', '+', '?', '{'}:
+                             unsafe = True
+                             
+                    if not unsafe:
+                        best_prefix = p
+                        group.append(labels[j])
+                    else:
+                        break
                 else:
                     break
             else:
@@ -257,7 +540,9 @@ def labels2regex(raw_labels):
             complex_labels.append("[" + "".join(sorted_chars) + "]")
     
     labels = sorted(list(set(complex_labels)), key=lambda x: x)
+    labels = simplify_repetitions(labels)
     labels = factor_labels(labels)
+    labels = factor_suffixes(labels)
     labels = sorted(labels, key=lambda x: (len(x), x))
     
     if len(labels) == 1:
@@ -302,6 +587,25 @@ def generate_suffix_regex(base, div, k):
         if val % div == 0:
             long_labels.append(s)
 
+    # SPECIAL OPTIMIZATION for Zeros
+    # Check if short_labels are all zeros.
+    # Actually, we can just check if any label is pure zeros and replace with 0+ coverage?
+    # Safe logic: if short_labels contains '0', and we are doing divisibility,
+    # '0' is divisible. '00' is divisible. '000' is divisible.
+    # Effectively, 0+ is valid.
+    # But wait, we must be sure we aren't masking other things?
+    # No, short_labels are OR'd.
+    # If we add '0+', it just adds more valid strings (all zeros).
+    # Since 0 is always divisible, 0+ is always valid.
+    # So if short_labels has '0' (it should), we can just replace all pure-zero labels with '0+'.
+    
+    has_zero = any(l == '0' for l in short_labels)
+    if has_zero:
+        # Remove all pure zero labels
+        short_labels = [l for l in short_labels if set(l) != {'0'}]
+        # Add '0+'
+        short_labels.append('0+')
+        
     short_regex = labels2regex(short_labels)
     long_suffix_regex = labels2regex(long_labels)
     
@@ -310,6 +614,9 @@ def generate_suffix_regex(base, div, k):
     prefix = format_star(prefix_regex)
     
     if short_regex:
+        # Strip outer parens from short_regex if it is a group, to avoid ((A|B)|C) -> (A|B|C)
+        if short_regex.startswith('(') and short_regex.endswith(')') and is_atomic(short_regex):
+             short_regex = short_regex[1:-1]
         return f"^({short_regex}|{prefix}{long_suffix_regex})$"
     else:
         return f"^{prefix}{long_suffix_regex}$"
